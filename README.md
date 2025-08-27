@@ -53,35 +53,7 @@ After the agent connects, the operator will be presented with with a clean inter
 
 Operator can execute most shell commands with different shell operators (`\`, `>`, etc.). Although setting shell variables are not currently implemented, reading existing ones are.
 
-```
-$ CruxServer
-
-   ______                             ______   _____
- .' ___  |                          .' ___  | / ___ `.
-/ .'   \_| _ .--.  __   _   _   __ / .'   \_||_/___) |
-| |       [ `/'`\][  | | | [ \ [  ]| |        .'____.'
-\ `.___.'\ | |     | \_/ |, > '  < \ `.___.'\/ /_____
- `.____ .'[___]    '.__.'_/[__]`\_] `.____ .'|_______|
-
-
-CruxServer is listening on port 1337
-Agent 0 Connected from 127.0.0.1:37122!
-CRUX|brian@rx-93-nu|127.0.0.1:37122|$ echo "Hello World"
-Hello World
-
-CRUX|brian@rx-93-nu|127.0.0.1:37122|$ echo "Hello World" | base64
-SGVsbG8gV29ybGQK
-
-CRUX|brian@rx-93-nu|127.0.0.1:37122|$ echo "Hello World" > file.txt
-
-CRUX|brian@rx-93-nu|127.0.0.1:37122|$ cat file.txt
-Hello World
-
-CRUX|brian@rx-93-nu|127.0.0.1:37122|$ echo $HOME
-/home/brian
-
-CRUX|brian@rx-93-nu|127.0.0.1:37122|$
-```
+![shell_demo](./img/shell_demo.png)
 
 ## Disclaimer
 This project is for educational or red teaming use in controlled, authorized environments only. Any misuse against unauthorized systems is illegal and strictly discouraged.
