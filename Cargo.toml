@@ -1,0 +1,23 @@
+[package]
+name = "CruxC2"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "CruxServer"
+path = "src/server/server.rs"
+
+[[bin]]
+name = "CruxAgent"
+path = "src/agent/agent.rs"
+
+[dependencies]
+byteorder = "1.5.0"
+clap = { version = "4.5.41", features = ["derive"] }
+colored = "3.0.0"
+regex = "1.11.1"
+rustyline = "17.0.1"
+serde = { version = "1.0.219", features = ["derive"]}
+serde_json = "1.0.141"
+subprocess = "0.2.9"
+whoami = "1.6.0"

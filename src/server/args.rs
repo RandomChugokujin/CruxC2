@@ -1,0 +1,16 @@
+use clap::{
+    Parser
+};
+
+#[derive(Debug, Parser)]
+#[clap(author, version, about)]
+#[command(name = "CruxServer")]
+#[command(author = "Brian Cao [https://haoyingcao.xyz]")]
+#[command(version = "0.1")]
+#[command(about = "A simple Command & Control Server inside the CruxC2 framework.", long_about = None)]
+
+pub struct CruxServerArgs {
+    /// The port to listen on (short -c)
+    #[arg(short = 'p', long = "port", default_value_t = String::from("1337"))]
+    pub port: String,
+}
