@@ -18,6 +18,19 @@ The following features are currently planned, in the order that it will be imple
 - [ ] Establish Persistence to avoid re-running exploit
 - [ ] Support for Linux and Windows Targets
 
+## Build Instruction
+To build CruxC2 from source, simply clone the repo and run `cargo build`.
+```
+$ git clone https://github.com/RandomChugokujin/CruxC2
+$ cargo build --release
+```
+
+The binaries (`CruxAgent` and `CruxServer`) will be available at `target/release/`.
+```
+$ ls target/release
+build  CruxAgent  CruxAgent.d  CruxServer  CruxServer.d  deps  examples  incremental
+```
+
 ## CruxAgent
 CruxAgent is the component of the C2 that provides server control over the target. It should be transferred onto the target machine and executed like following:
 ```
