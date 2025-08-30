@@ -8,10 +8,12 @@ use clap::{Parser};
 use whoami::{self, fallible};
 use serde_json;
 use subprocess::{Exec, ExitStatus, Redirection};
+use regex::Regex;
 
 // std
 use std::env;
 use std::net::{TcpStream, Shutdown};
+use std::collections::HashMap;
 
 // My stuff
 use args::CruxAgentArgs;
@@ -49,6 +51,49 @@ fn normalize_exit_code(status: ExitStatus) -> i64 {
         ExitStatus::Undetermined => -1,
     }
 }
+fn parse_var_def(def_str: &str) -> Result<(String, String), Box<dyn std::error::Error>> {
+    let mut split_by_equal = def_str.splitn(2, '=');
+    let var_name = match split_by_equal.next(){
+        Some(var_name) => var_name.to_string(),
+        _none => return Err("No variable name specified".into())
+    };
+    let mut var_value = match split_by_equal.next(){
+        Some(var_value) => var_value.to_string(),
+        _none => return Err("No variable value specified".into())
+    };
+
+    // Check for Strings in the value
+    if var_value.starts_with('\'') && var_value.ends_with('\'') {
+        var_value.remove(0);
+        var_value.pop();
+    }
+    else if var_value.starts_with('"') && var_value.ends_with('"') {
+        // TODO: Character Escaping
+        // TODO: variable resolution
+        var_value.remove(0);
+        var_value.pop();
+    }
+    return Ok((var_name, var_value));
+}
+
+fn variable_substitution(command: &str, var_map: &HashMap<String, String>) -> String {
+    // Regex to match either $VAR or ${VAR}
+    let re = Regex::new(r"\$(?:\{(\w+)\}|(\w+))").unwrap();
+
+    let result = re.replace_all(command, |caps: &regex::Captures| {
+        // Extract variable name from either capture group
+        let var_name = caps.get(1).or_else(|| caps.get(2)).unwrap().as_str();
+
+        // Lookup value from var_map first, then environment, fallback empty string
+        var_map
+            .get(var_name)
+            .cloned()
+            .or_else(|| env::var(var_name).ok())
+            .unwrap_or_default()
+    });
+
+    result.to_string()
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = CruxAgentArgs::parse();
@@ -64,7 +109,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     unsafe {
         env::set_var("USER", &user);
     }
-    // TODO: Add command handling
+
+    // Hash map for shell variables
+    // Look out for concurrency safety potentially
+    let mut shell_var_map: HashMap<String, String> = HashMap::new();
+
     loop {
         let received_cmd_vec = match read_length_prefix(&mut stream){
             Ok(c) => c,
@@ -95,12 +144,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 };
             }
+            CmdType::Setvar =>{
+                match parse_var_def(&received_cmd.args) {
+                    Ok(var_tuple) => {
+                        shell_var_map.insert(var_tuple.0, var_tuple.1);
+                        cmd_result.status = 0;
+                    }
+                    Err(e) => {
+                        cmd_result.output = e.to_string();
+                    }
+                };
+            }
+            CmdType::Export =>{
+                // TODO: Implement Environment Variable exporting
+                match parse_var_def(&received_cmd.args) {
+                    Ok(var_tuple) => {
+                        unsafe {
+                            env::set_var(var_tuple.0, var_tuple.1);
+                        }
+                        cmd_result.status = 0;
+                    }
+                    Err(e) => {
+                        cmd_result.output = e.to_string();
+                    }
+                };
+            }
             CmdType::Exec => {
-                let command = Exec::shell(received_cmd.args)
+                // TODO: Implement variable subsitution
+                let subsituted_args = variable_substitution(&received_cmd.args, &shell_var_map);
+
+                let execution = Exec::shell(subsituted_args)
                     .stdout(Redirection::Pipe)
                     .stderr(Redirection::Merge);
 
-                match command.capture(){
+                match execution.capture(){
                     Ok(output) => {
                     cmd_result = CmdResult {
                             status: normalize_exit_code(output.exit_status),
@@ -108,7 +185,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         };
                     }
                     Err(_) => {
-                        cmd_result = CmdResult::default();
                         cmd_result.output = "Failed to run command".to_string();
                     }
                 }

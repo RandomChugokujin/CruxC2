@@ -9,9 +9,9 @@ CruxC2 is a lightweight C2 Framework for use with Penetration Testing, CTFs, and
 ## Implemented & Planned Features:
 The following features are currently implemented:
 - [x] Interactive shell session
+- [x] Setting Variables
 
 The following features are currently planned, in the order that it will be implemented:
-- [ ] Setting Variables
 - [ ] TLS encrypted transport
 - [ ] File upload/download
 - [ ] Ability to edit remote files
@@ -67,6 +67,8 @@ After the agent connects, the operator will be presented with with a clean inter
 Operator can execute most shell commands with different shell operators (`\`, `>`, etc.). Although setting shell variables are not currently implemented, reading existing ones are.
 
 ![shell_demo](./img/shell_demo.png)
+
+For special shell commands, please see wiki.
 
 ## Disclaimer
 This project is for educational or red teaming use in controlled, authorized environments only. Any misuse against unauthorized systems is illegal and strictly discouraged.

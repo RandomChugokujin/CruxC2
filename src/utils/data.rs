@@ -4,9 +4,11 @@ use serde::{Serialize, Deserialize};
 pub enum CmdType {
     Exit,
     Cd,
+    Setvar,
+    Export,
     Download,
     Upload,
-    Exec
+    Exec,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

