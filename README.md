@@ -10,9 +10,10 @@ CruxC2 is a lightweight C2 Framework for use with Penetration Testing, CTFs, and
 The following features are currently implemented:
 - [x] Interactive shell session
 - [x] Setting Variables
+- [x] TLS encrypted transport
 
 The following features are currently planned, in the order that it will be implemented:
-- [ ] TLS encrypted transport
+- [ ] Remote termination of running command via Ctrl+C
 - [ ] File upload/download
 - [ ] Ability to edit remote files
 - [ ] Establish Persistence to avoid re-running exploit
@@ -51,20 +52,21 @@ Options:
 ## CruxServer
 CruxServer will listen for incoming connections (on port 1337 by default) much like a reverse shell listener when launched.
 ```
-$ CruxServer --help
 A simple Command & Control Server inside the CruxC2 framework.
 
 Usage: CruxServer [OPTIONS]
 
 Options:
-  -p, --port <PORT>  The port to listen on (short -c) [default: 1337]
-  -h, --help         Print help
-  -V, --version      Print version
+  -p, --port <PORT>             The port to listen on [default: 1337]
+  -f, --pkcs12-path <IDENTITY>  PKCS12 Identity File path [default: $HOME/.config/CruxC2/identity.pfx]
 ```
+
+On first launch, CruxServer will generate a self-signed identity file in `$HOME/.config/CruxC2/identity.pfx` to support the TLS encryption. It will also ask you to provide a password to protect it.
+Please remember the password you set for your identity file. If you forgot your password, you have to remove the identity file, re-run `CruxServer` to generate it again.
 
 After the agent connects, the operator will be presented with with a clean interactive shell session with readline features such as up/down arrows to cycle through command history and moving the cursor with left/right arrow to edit commands.
 
-Operator can execute most shell commands with different shell operators (`\`, `>`, etc.). Although setting shell variables are not currently implemented, reading existing ones are.
+Operator can execute most shell commands with different shell operators (`>`, `|`, etc.). Shell and environment variable subsitution is also implemented via the `setvar` command for shell variables and `export` command for environment variables.
 
 ![shell_demo](./img/shell_demo.png)
 
