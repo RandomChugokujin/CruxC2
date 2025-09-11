@@ -89,9 +89,8 @@ fn variable_substitution(command: &str, var_map: &HashMap<String, String>) -> St
         var_map
             .get(var_name)
             .cloned()
-            .unwrap_or(format!("${}", var_name))
+            .unwrap_or(format!("${{{}}}", var_name))
     });
-
     result.to_string()
 }
 
