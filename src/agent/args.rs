@@ -16,5 +16,9 @@ pub struct CruxAgentArgs {
     pub rport: String,
 
     /// Remote host to connect to (mandatory)
-    pub rhost: IpAddr
+    pub rhost: IpAddr,
+
+    /// verify certificates (default false)
+    #[arg(long="verify-cert", action = clap::ArgAction::SetTrue)]
+    pub verify_cert: bool,
 }
