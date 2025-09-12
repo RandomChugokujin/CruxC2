@@ -10,11 +10,13 @@ use rustyline::DefaultEditor;
 
 // std
 use std::net::{TcpStream};
+use std::collections::HashMap;
 
 // my stuff
 use utils::network::{write_length_prefix, read_length_prefix};
 use utils::data::{Cmd, CmdType, CmdResult};
 use utils::os::Metadata;
+use utils::shell_var::{parse_var_def, variable_substitution};
 
 
 fn send_cmd(stream: &mut TlsStream<TcpStream>, cmd_type: CmdType, args_str: String) -> Result<(),Box<dyn std::error::Error>>{
@@ -44,6 +46,10 @@ pub fn linux_shell(stream: &mut TlsStream<TcpStream>, meta_str: &str) -> Result<
     let peer_ip = stream.get_ref().peer_addr()?.to_string();
     let mut rl = DefaultEditor::new()?;
 
+    // Hash map for shell variables
+    // Look out for concurrency safety issues potentially
+    let mut shell_var_map: HashMap<String, String> = HashMap::new();
+
     // Main CLI loop
     loop {
         let mut prompt = format!("{}|{}@{}|{}|{} ",
@@ -66,7 +72,7 @@ pub fn linux_shell(stream: &mut TlsStream<TcpStream>, meta_str: &str) -> Result<
                 let _ = rl.add_history_entry(input.as_str());
 
                 // Handle input
-                let input = input.trim();
+                let input = variable_substitution(input.trim(), &shell_var_map);
                 let mut parts = input.splitn(2, ' ');
                 let cmd = match parts.next() {
                     Some(cmd) => cmd,
@@ -82,7 +88,15 @@ pub fn linux_shell(stream: &mut TlsStream<TcpStream>, meta_str: &str) -> Result<
                         send_cmd(stream, CmdType::Cd, args.to_string())?;
                     }
                     "setvar" => {
-                        send_cmd(stream, CmdType::Setvar, args.to_string())?;
+                        match parse_var_def(&args) {
+                            Ok(var_tuple) => {
+                                shell_var_map.insert(var_tuple.0, var_tuple.1);
+                            }
+                            Err(e) => {
+                                eprintln!("Error parsing shell variable definition: {}", e)
+                            }
+                        }
+                        continue;
                     }
                     "export" => {
                         send_cmd(stream, CmdType::Export, args.to_string())?;
@@ -107,6 +121,7 @@ pub fn linux_shell(stream: &mut TlsStream<TcpStream>, meta_str: &str) -> Result<
                         println!("{}", stream.get_ref().peer_addr()?);
                         continue;
                     }
+                    // Default goes to Exec
                     _ => {
                         send_cmd(stream, CmdType::Exec, input.to_string())?;
                     }
