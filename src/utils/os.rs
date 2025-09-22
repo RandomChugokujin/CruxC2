@@ -19,14 +19,6 @@ impl fmt::Display for OS {
     }
 }
 
-// pub fn parse_os(input: &str) -> OS {
-//     match input.trim() {
-//         "Windows" => return OS::Windows,
-//         "Linux" => return OS::Linux,
-//         _ => return OS::Unknown
-//     };
-// }
-
 pub fn os_detect() -> OS {
     if cfg!(target_os = "windows"){
         OS::Windows
@@ -43,5 +35,6 @@ pub fn os_detect() -> OS {
 pub struct Metadata {
     pub username: String,
     pub hostname: String,
-    pub os_type: OS
+    pub os_type: OS,
+    pub shell_path: String
 }

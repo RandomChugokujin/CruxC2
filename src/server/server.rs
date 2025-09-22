@@ -48,6 +48,8 @@ fn handle_client(stream: &mut TlsStream<TcpStream>, agent_id: u16) -> Result<(),
     let meta_str = String::from_utf8_lossy(&metabuf);
     let meta: Metadata = serde_json::from_str(&meta_str)?;
 
+    println!("Current Shell Path: {}", meta.shell_path);
+
     // Launch shell
     match meta.os_type {
         OS::Linux => {
