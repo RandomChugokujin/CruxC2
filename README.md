@@ -70,7 +70,7 @@ Operator can execute most shell commands with different shell operators (`>`, `|
 
 ![shell_demo](./img/shell_demo.png)
 
-For special shell commands, please see wiki.
+If you want to learn more about the shell interface, please see this [wiki article](https://github.com/RandomChugokujin/CruxC2/wiki/CruxC2-Shell-Interface).
 
 ## Disclaimer
 This project is for educational or red teaming use in controlled, authorized environments only. Any misuse against unauthorized systems is illegal and strictly discouraged.
