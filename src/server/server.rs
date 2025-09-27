@@ -23,7 +23,7 @@ use std::env;
 // my stuff
 use args::CruxServerArgs;
 use linux_shell::linux_shell;
-use utils::os::{OS, Metadata};
+use utils::data::{Metadata, OS};
 use utils::network::read_length_prefix;
 
 static BANNER: &str = "
