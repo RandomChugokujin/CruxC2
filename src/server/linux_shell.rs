@@ -116,8 +116,9 @@ pub fn linux_shell(stream: &mut TlsStream<TcpStream>, meta_str: &str) -> Result<
                         println!("File upload feature under construction...");
                         continue;
                     }
-                    "clear" => { // Currently not working for some reason
-                        print!("\x1B[2J");
+                    "clear" => {
+                        io::stdout().write_all(b"\x1B[H]\x1B[2J")?;
+                        io::stdout().flush()?;
                         continue;
                     }
                     "lhost" => {

