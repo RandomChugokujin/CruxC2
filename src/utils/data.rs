@@ -1,4 +1,5 @@
 use std::fmt;
+use std::vec;
 use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -49,7 +50,7 @@ pub enum Message {
     Cmd {id: u64, cmd_type: CmdType, args: String},
     Kill {id: u64},
     // Agent -> Server
-    CmdOutput {id: u64, data: String},
+    CmdOutput {id: u64, data: Vec<u8>},
     CmdExit {id: u64, status: i64},
     CmdError {id: u64, error: String}
 }

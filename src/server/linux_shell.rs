@@ -9,6 +9,7 @@ use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 
 // std
+use std::io::{self, Write};
 use std::net::{TcpStream};
 use std::collections::HashMap;
 
@@ -136,7 +137,9 @@ pub fn linux_shell(stream: &mut TlsStream<TcpStream>, meta_str: &str) -> Result<
                 while let Ok(msg) = receive_output(stream) {
                     match msg {
                         Message::CmdOutput { id:_, data } => {
-                            println!("{}", data.trim());
+                            // print!("{}", data);
+                            io::stdout().write_all(&data)?;
+                            io::stdout().flush()?;
                         }
                         Message::CmdError { id:_, error } => {
                             eprintln!("{}", error.trim());

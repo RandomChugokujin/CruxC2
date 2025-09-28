@@ -14,6 +14,7 @@ use subprocess::{Exec, ExitStatus, Redirection};
 use std::env;
 use std::net::{TcpStream};
 use std::path::Path;
+use std::io::Read;
 
 // My stuff
 use args::CruxAgentArgs;
@@ -108,7 +109,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Err(_) => continue
         };
 
-        let mut cmd_output = Message::CmdOutput { id: 0, data: String::from("") };
+        let mut cmd_output = Message::CmdOutput { id: 0, data: vec![] };
         let mut cmd_exit = Message::CmdExit { id: 0, status: 0 };
         match received_msg {
             Message::Cmd { id:_, cmd_type, args } => {
@@ -121,18 +122,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             "" => env::var("HOME").unwrap_or("/".to_string()), // Home directory
                             _ => args
                         };
-                        match env::set_current_dir(new_dir) {
-                            Ok(_) => {
-                                cmd_output = Message::CmdOutput {
-                                    id: 0, data: String::from("")
-                                };
+                        if let Err(e) = env::set_current_dir(new_dir) {
+                            cmd_output = Message::CmdError {
+                                id: 0, error: format!("Error from CruxAgent: {}", e)
                             }
-                            Err(e) => {
-                                cmd_output = Message::CmdError {
-                                    id: 0, error: format!("Error from CruxAgent: {}", e)
-                                };
-                            }
-                        };
+                        }
                     }
                     CmdType::Export =>{
                         match parse_var_def(&args) {
@@ -140,9 +134,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 unsafe {
                                     env::set_var(var_tuple.0, var_tuple.1);
                                 }
-                                cmd_output = Message::CmdOutput {
-                                    id: 0, data: String::from("")
-                                };
                             }
                             Err(e) => {
                                 cmd_output = Message::CmdError {
@@ -152,27 +143,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         };
                     }
                     CmdType::Exec => {
-                        let execution = Exec::cmd(&shell_path)
+                        match Exec::cmd(&shell_path)
                             .arg("-c")
                             .arg(&args)
                             .stdout(Redirection::Pipe)
-                            .stderr(Redirection::Merge);
-
-                        match execution.capture(){
-                            Ok(output) => {
-                                cmd_output = Message::CmdOutput { id: 0, data: output.stdout_str() };
-                                cmd_exit = Message::CmdExit { id: 0, status: normalize_exit_code(output.exit_status) }
+                            .stderr(Redirection::Merge)
+                            .popen() {
+                            Ok(mut p) => {
+                                if let Some(mut out) = p.stdout.take(){
+                                    let mut buf = [0u8; 512];
+                                    loop{
+                                        match out.read(&mut buf){
+                                            Ok(0) => break,
+                                            Ok(n) => {
+                                                cmd_output = Message::CmdOutput { id: 0, data: buf[..n].to_vec() };
+                                                send_response(&cmd_output, &mut stream)?;
+                                            }
+                                            Err(e) => {
+                                                cmd_output = Message::CmdError { id: 0, error: format!("Error from CruxAgent: {}", e) };
+                                                send_response(&cmd_output, &mut stream)?;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                // Wait for exit
+                                let status = match p.wait() {
+                                    Ok(s) => s,
+                                    Err(_) => continue
+                                };
+                                cmd_exit = Message::CmdExit { id: 0, status: normalize_exit_code(status) };
                             }
                             Err(e) => {
                                 cmd_output = Message::CmdError { id: 0, error: format!("Error from CruxAgent: {}", e) };
                             }
-                        }
+                        };
                     }
                     _ => {}
-                }
-                if let Err(_) = send_response(&mut cmd_output, &mut stream){
-                    // TODO: Introduce some error handling here???
-                    break;
                 }
                 // Only send cmd_exit if our command didn't cause an error
                 if let Message::CmdOutput { id:_, data:_ } = cmd_output {
